@@ -38,6 +38,32 @@ app.get('/api/historico', (req, res) => {
     });
 });
 
+// NUEVO: Ruta para descargar el historial completo en formato CSV
+app.get('/api/exportar', (req, res) => {
+    // Pedimos TODOS los datos de la tabla, ordenados del más reciente al más antiguo
+    db.all(`SELECT * FROM telemetria ORDER BY id DESC`, [], (err, rows) => {
+        if (err) {
+            res.status(500).send("Error al consultar la base de datos");
+            return;
+        }
+
+        // 1. Creamos la primera fila del Excel (Los encabezados)
+        let csv = 'ID,Sensor,Presion_PSI,Fecha_Hora\n';
+        
+        // 2. Recorremos cada fila de la base de datos y la agregamos separada por comas
+        rows.forEach(fila => {
+            csv += `${fila.id},${fila.sensor},${fila.presion},${fila.timestamp}\n`;
+        });
+
+        // 3. Le decimos al navegador web que esto no es una página, sino un archivo para descargar
+        res.header('Content-Type', 'text/csv');
+        res.attachment('Reporte_Compresor_01.csv');
+        
+        // 4. Enviamos el archivo
+        return res.send(csv);
+    });
+});
+
 io.on('connection', (socket) => {
     console.log('Un nuevo cliente web se ha conectado:', socket.id);
 });
