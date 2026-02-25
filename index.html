@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard IIoT - Planta</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f7f6; text-align: center; padding: 20px; }
+        .tarjeta { background: white; padding: 20px; border-radius: 10px; box-shadow: 0px 4px 6px rgba(0,0,0,0.1); display: inline-block; margin-bottom: 20px;}
+        .valor-grande { font-size: 40px; font-weight: bold; color: #007bff; margin: 10px 0;}
+        .contenedor-grafica { width: 80%; max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0px 4px 6px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+    <h1>Monitoreo en Tiempo Real</h1>
+    <div id="indicadorStatus" style="background-color: #28a745; color: white; padding: 5px 15px; border-radius: 20px; display: inline-block; margin-bottom: 20px; font-weight: bold;">
+    🟢 Conectado al Servidor
+    </div>
+    <div class="tarjeta">
+        <h3>Presión Actual: Compresor 01</h3>
+        <div class="valor-grande" id="displayPresion">-- PSI</div> 
+        <div style="color: gray; font-size: 14px;" id="displayHora">Esperando datos...</div>
+    </div>
+
+    <div class="contenedor-grafica">
+        <canvas id="graficaPresion"></canvas>
+    </div>
+
+    
+    <script>
+        // A. CONECTARSE AL SERVIDOR
+    const socket = io('http://localhost:3000');
+
+    // Cambiar a rojo si se pierde la conexión
+    socket.on('disconnect', () => {
+        const statusDiv = document.getElementById('indicadorStatus');
+        statusDiv.style.backgroundColor = '#dc3545';
+        statusDiv.innerHTML = '🔴 Conexión Perdida';
+    });
+
+    // Volver a verde si se reconecta
+    socket.on('connect', () => {
+        const statusDiv = document.getElementById('indicadorStatus');
+        statusDiv.style.backgroundColor = '#28a745';
+        statusDiv.innerHTML = '🟢 Conectado al Servidor';
+    });
+
+    // B. CONFIGURAR LA GRÁFICA (Chart.js)
+    const ctx = document.getElementById('graficaPresion').getContext('2d');
+    const chartPresion = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [], 
+            datasets: [{
+                label: 'Presión (PSI)',
+                data: [], 
+                borderColor: 'rgba(0, 123, 255, 1)',
+                backgroundColor: 'rgba(0, 123, 255, 0.2)',
+                borderWidth: 2,
+                tension: 0.4 
+            }]
+        },
+        options: {
+            responsive: true,
+            animation: false, 
+            scales: { y: { min: 90, max: 130 } }
+        }
+    });
+
+    // NUEVO C. CARGAR DATOS HISTÓRICOS AL INICIAR
+    // Hacemos una petición (Fetch) a la ruta que creamos en el servidor
+    fetch('http://localhost:3000/api/historico')
+        .then(respuesta => respuesta.json()) // Convertimos la respuesta a formato JSON
+        .then(datosHistoricos => {
+            // Por cada dato guardado, lo metemos a la gráfica
+            datosHistoricos.forEach(dato => {
+                chartPresion.data.labels.push(dato.timestamp);
+                chartPresion.data.datasets[0].data.push(dato.presion);
+            });
+            chartPresion.update(); // Dibujamos el historial
+        })
+        .catch(error => console.error("Error cargando historial:", error));
+
+    // D. ESCUCHAR LOS DATOS NUEVOS EN TIEMPO REAL
+    socket.on('telemetria_compresor', (datos) => {
+        
+        document.getElementById('displayPresion').innerText = datos.presion + " " + datos.unidad;
+        document.getElementById('displayHora').innerText = "Última lectura: " + datos.timestamp;
+
+        chartPresion.data.labels.push(datos.timestamp);
+        chartPresion.data.datasets[0].data.push(datos.presion);
+
+        if (chartPresion.data.labels.length > 15) {
+            chartPresion.data.labels.shift();
+            chartPresion.data.datasets[0].data.shift();
+        }
+
+        chartPresion.update();
+    });
+    </script>
+</body>
+</html>
