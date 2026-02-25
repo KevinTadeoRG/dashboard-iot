@@ -65,7 +65,7 @@ setInterval(() => {
 
 }, 2000);
 
-const PUERTO = 3000;
+const PUERTO = process.env.PORT || 3000;
 server.listen(PUERTO, () => {
     console.log(`Servidor de telemetría corriendo en http://localhost:${PUERTO}`);
 });

@@ -34,7 +34,7 @@
     
     <script>
         // A. CONECTARSE AL SERVIDOR
-    const socket = io('http://localhost:3000');
+    const socket = io();
 
     // Cambiar a rojo si se pierde la conexión
     socket.on('disconnect', () => {
@@ -74,7 +74,7 @@
 
     // NUEVO C. CARGAR DATOS HISTÓRICOS AL INICIAR
     // Hacemos una petición (Fetch) a la ruta que creamos en el servidor
-    fetch('http://localhost:3000/api/historico')
+    fetch('/api/historico')
         .then(respuesta => respuesta.json()) // Convertimos la respuesta a formato JSON
         .then(datosHistoricos => {
             // Por cada dato guardado, lo metemos a la gráfica
