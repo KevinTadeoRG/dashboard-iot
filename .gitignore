@@ -1,4 +1,6 @@
 node_modules/
-historico.db
-wallet_iot/
 .env
+wallet.zip
+wallet_iot/
+oci_api_key.pem
+oci_config
