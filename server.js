@@ -147,7 +147,10 @@ io.on('connection', (socket) => {
 
 setInterval(async () => {
     const presionSimulada = (Math.random() * (120 - 100) + 100).toFixed(2); 
-    const timestampActual = new Date().toLocaleTimeString();
+    const timestampActual = new Date().toLocaleTimeString('es-MX', { 
+        timeZone: 'America/Monterrey',
+        hour12: true 
+    });
     const datosTelemetria = { sensor: "Compresor_01", presion: parseFloat(presionSimulada), unidad: "PSI", timestamp: timestampActual };
 
     let connection;
