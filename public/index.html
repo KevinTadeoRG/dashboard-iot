@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard IIoT - Planta</title>
+    <link rel="stylesheet" href="/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <script src="/script.js" defer></script>
+
+</head>
+<h1>Monitoreo en Tiempo Real</h1>
+    
+    <div id="indicadorStatus" style="background-color: #28a745; color: white; padding: 5px 15px; border-radius: 20px; display: inline-block; margin-bottom: 20px; font-weight: bold;">
+        🟢 Conectado al Servidor
+    </div>
+    <br>
+
+    <div class="tarjeta" id="tarjetaPresion">
+        <h3>Presión Actual: Compresor 01</h3>
+        
+        <div id="indicadorAlarma" style="display: none; background-color: #dc3545; color: white; padding: 5px 10px; border-radius: 5px; font-weight: bold; margin-bottom: 10px; animation: parpadeo 1s infinite;">
+            ⚠️ ALARMA: SOBREPRESIÓN
+        </div>
+
+        <div class="valor-grande" id="displayPresion">-- PSI</div> 
+        <div style="color: gray; font-size: 14px;" id="displayHora">Esperando datos...</div>
+    </div>
+
+    <div class="tarjeta" id="tarjetaIA" style="margin-left: 20px; vertical-align: top;">
+        <h3>🤖 Diagnóstico Predictivo (IA)</h3>
+        <div id="statusIA" style="font-size: 20px; font-weight: bold; color: #28a745; margin-top: 20px;">
+            Salud del Equipo: Óptima
+        </div>
+        <div style="color: gray; font-size: 12px; margin-top: 10px;">Modelo OCI: Detección de Anomalías v1.2</div>
+    </div>
+
+    <div class="contenedor-grafica">
+        <canvas id="graficaPresion"></canvas>
+    </div>
+
+    <div style="margin-top: 30px; margin-bottom: 40px;">
+        <a href="/api/exportar" style="background-color: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);">
+            📊 Descargar Historial (Excel/CSV)
+        </a>
+    </div>
+
+</body>
+</html>
