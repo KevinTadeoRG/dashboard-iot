@@ -163,7 +163,7 @@ setInterval(async () => {
             io.emit('telemetria_compresor', datosTelemetria); 
         }
     } catch (err) {
-        // Silenciamos el error si aún está arrancando
+        console.error("🔴 Error inyectando datos a Oracle:", err); 
     } finally {
         if (connection) await connection.close();
     }
