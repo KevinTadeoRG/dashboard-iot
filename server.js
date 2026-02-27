@@ -1,75 +1,93 @@
+require('dotenv').config(); // Cargar la contraseña secreta
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path'); // NUEVO: Herramienta para manejar rutas de archivos
+const path = require('path');
+const oracledb = require('oracledb'); // El nuevo driver industrial
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// NUEVO: Cuando alguien entre a http://localhost:3000, el servidor le entregará el archivo index.html
+// Le decimos a Oracle que nos entregue los datos en formato JSON, no en arreglos puros
+oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
+
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Crear y conectar a la base de datos
-const db = new sqlite3.Database('./historico.db', (err) => {
-    if (err) console.error("Error al abrir base de datos", err);
-    else console.log("Conectado a la base de datos SQLite.");
-});
+// 1. INICIALIZAR LA CONEXIÓN A OCI
+async function iniciarOracle() {
+    try {
+        await oracledb.createPool({
+            user: "ADMIN",
+            password: process.env.DB_PASSWORD, // Lo lee de tu archivo .env
+            connectString: "(description= (retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1522)(host=adb.mx-monterrey-1.oraclecloud.com))(connect_data=(service_name=g1504cc4cf398d5_iotdb_tp.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))", // <--- CAMBIA ESTO por el nombre que viste en tu tnsnames.ora
+            walletLocation: path.join(__dirname, "wallet_iot"),
+            walletPassword: process.env.DB_PASSWORD // Usualmente es la misma contraseña
+        });
+        console.log("🟢 Conectado exitosamente a Oracle Cloud (Autonomous Database)");
+    } catch (err) {
+        console.error("🔴 Error conectando a Oracle:", err);
+    }
+}
+iniciarOracle(); // Ejecutamos la conexión al arrancar
 
-db.run(`CREATE TABLE IF NOT EXISTS telemetria (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sensor TEXT,
-    presion REAL,
-    unidad TEXT,
-    timestamp TEXT
-)`);
-
-// Ruta API para el histórico
-app.get('/api/historico', (req, res) => {
-    db.all(`SELECT * FROM telemetria ORDER BY id DESC LIMIT 15`, [], (err, rows) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        res.json(rows.reverse()); 
-    });
-});
-
-// NUEVO: Ruta para descargar el historial completo en formato CSV
-app.get('/api/exportar', (req, res) => {
-    // Pedimos TODOS los datos de la tabla, ordenados del más reciente al más antiguo
-    db.all(`SELECT * FROM telemetria ORDER BY id DESC`, [], (err, rows) => {
-        if (err) {
-            res.status(500).send("Error al consultar la base de datos");
-            return;
-        }
-
-        // 1. Creamos la primera fila del Excel (Los encabezados)
-        let csv = 'ID,Sensor,Presion_PSI,Fecha_Hora\n';
+// 2. RUTA HISTÓRICO (Endpoint)
+app.get('/api/historico', async (req, res) => {
+    let connection;
+    try {
+        connection = await oracledb.getConnection();
+        // En Oracle, LIMIT se escribe como FETCH FIRST n ROWS ONLY
+        const result = await connection.execute(
+            `SELECT * FROM TELEMETRIA ORDER BY ID DESC FETCH FIRST 15 ROWS ONLY`
+        );
         
-        // 2. Recorremos cada fila de la base de datos y la agregamos separada por comas
-        rows.forEach(fila => {
-            csv += `${fila.id},${fila.sensor},${fila.presion},${fila.timestamp}\n`;
+        // Oracle devuelve las columnas en MAYÚSCULAS. Las pasamos a minúsculas para no romper tu frontend.
+        const datosFormateados = result.rows.map(row => ({
+            id: row.ID,
+            sensor: row.SENSOR,
+            presion: row.PRESION,
+            unidad: row.UNIDAD,
+            timestamp: row.TIMESTAMP
+        }));
+        
+        res.json(datosFormateados.reverse());
+    } catch (err) {
+        res.status(500).json({ error: "Error consultando histórico en OCI" });
+    } finally {
+        if (connection) await connection.close(); // Siempre cerramos la conexión para no saturar el pool
+    }
+});
+
+// 3. RUTA EXPORTAR A EXCEL (CSV)
+app.get('/api/exportar', async (req, res) => {
+    let connection;
+    try {
+        connection = await oracledb.getConnection();
+        const result = await connection.execute(`SELECT * FROM TELEMETRIA ORDER BY ID DESC`);
+        
+        let csv = 'ID,Sensor,Presion_PSI,Fecha_Hora\n';
+        result.rows.forEach(fila => {
+            csv += `${fila.ID},${fila.SENSOR},${fila.PRESION},${fila.TIMESTAMP}\n`;
         });
 
-        // 3. Le decimos al navegador web que esto no es una página, sino un archivo para descargar
         res.header('Content-Type', 'text/csv');
-        res.attachment('Reporte_Compresor_01.csv');
-        
-        // 4. Enviamos el archivo
+        res.attachment('Reporte_Cloud_Compresor.csv');
         return res.send(csv);
-    });
+    } catch (err) {
+        res.status(500).send("Error exportando desde OCI");
+    } finally {
+        if (connection) await connection.close();
+    }
 });
 
+// 4. LÓGICA DE WEBSOCKETS Y SIMULADOR
 io.on('connection', (socket) => {
-    console.log('Un nuevo cliente web se ha conectado:', socket.id);
+    console.log('Cliente web conectado al sistema.');
 });
 
-// El simulador de datos
-setInterval(() => {
+setInterval(async () => {
     const presionSimulada = (Math.random() * (120 - 100) + 100).toFixed(2); 
     const timestampActual = new Date().toLocaleTimeString();
 
@@ -80,18 +98,28 @@ setInterval(() => {
         timestamp: timestampActual
     };
 
-    // Guardar en base de datos y emitir
-    db.run(`INSERT INTO telemetria (sensor, presion, unidad, timestamp) VALUES (?, ?, ?, ?)`, 
-        [datosTelemetria.sensor, datosTelemetria.presion, datosTelemetria.unidad, datosTelemetria.timestamp],
-        function(err) {
-            if (err) return console.log(err.message);
-            io.emit('telemetria_compresor', datosTelemetria); 
-        }
-    );
+    let connection;
+    try {
+        connection = await oracledb.getConnection();
+        // En Oracle, por seguridad, se usan "Bind Variables" (:1, :2) en lugar de signos de interrogación (?, ?)
+        await connection.execute(
+            `INSERT INTO TELEMETRIA (SENSOR, PRESION, UNIDAD, TIMESTAMP) VALUES (:1, :2, :3, :4)`,
+            [datosTelemetria.sensor, datosTelemetria.presion, datosTelemetria.unidad, datosTelemetria.timestamp],
+            { autoCommit: true } // VITAL: Si no pones esto, Oracle no guarda el dato permanentemente
+        );
+        
+        // Solo emitimos al Frontend si el dato se guardó exitosamente en la nube
+        io.emit('telemetria_compresor', datosTelemetria); 
+    } catch (err) {
+        console.error("Error insertando en OCI:", err);
+    } finally {
+        if (connection) await connection.close();
+    }
 
 }, 2000);
 
+// 5. ENCENDER SERVIDOR
 const PUERTO = process.env.PORT || 3000;
 server.listen(PUERTO, () => {
-    console.log(`Servidor de telemetría corriendo en http://localhost:${PUERTO}`);
+    console.log(`Motor Node.js arrancado en el puerto ${PUERTO}`);
 });

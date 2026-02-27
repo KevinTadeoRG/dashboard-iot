@@ -1,2 +1,4 @@
 node_modules/
 historico.db
+wallet_iot/
+.env
