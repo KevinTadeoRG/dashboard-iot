@@ -120,53 +120,156 @@ app.get('/api/historico', async (req, res) => {
     }
 });
 
-app.get('/api/exportar', async (req, res) => {
-    let connection;
-    try {
-        connection = await oracledb.getConnection();
-        const result = await connection.execute(`SELECT * FROM TELEMETRIA ORDER BY ID DESC`);
-        let csv = 'ID,Sensor,Presion_PSI,Fecha_Hora\n';
-        result.rows.forEach(fila => { csv += `${fila.ID},${fila.SENSOR},${fila.PRESION},${fila.TIMESTAMP}\n`; });
-        res.header('Content-Type', 'text/csv');
-        res.attachment('Reporte_Cloud_Compresor.csv');
-        return res.send(csv);
-    } catch (err) {
-        res.status(500).send("Error exportando desde OCI");
-    } finally {
-        if (connection) await connection.close();
-    }
-});
+// OPTIENE DIRECTAMENTE DE LA TABLA TELEMETRIA 
+// app.get('/api/exportar', async (req, res) => {
+//     let connection;
+//     try {
+//         connection = await oracledb.getConnection();
+//         const result = await connection.execute(`SELECT * FROM TELEMETRIA ORDER BY ID DESC`);
+//         let csv = 'ID,Sensor,Presion_PSI,Fecha_Hora\n';
+//         result.rows.forEach(fila => { csv += `${fila.ID},${fila.SENSOR},${fila.PRESION},${fila.TIMESTAMP}\n`; });
+//         res.header('Content-Type', 'text/csv');
+//         res.attachment('Reporte_Cloud_Compresor.csv');
+//         return res.send(csv);
+//     } catch (err) {
+//         res.status(500).send("Error exportando desde OCI");
+//     } finally {
+//         if (connection) await connection.close();
+//     }
+// });
 
 io.on('connection', (socket) => {
     console.log('Cliente web conectado al dashboard.');
 });
 
-setInterval(async () => {
-    const presionSimulada = (Math.random() * (120 - 100) + 100).toFixed(2); 
-    const timestampActual = new Date().toLocaleTimeString('es-MX', { 
-        timeZone: 'America/Monterrey',
-        hour12: true 
-    });
-    const datosTelemetria = { sensor: "Compresor_01", presion: parseFloat(presionSimulada), unidad: "PSI", timestamp: timestampActual };
 
+// ==========================================
+// 📊 ENDPOINT: GENERADOR DE REPORTES CSV
+// ==========================================
+app.get('/api/exportar', async (req, res) => {
     let connection;
+
     try {
-        // Asegurarnos de que el pool ya esté creado antes de intentar insertar
-        if (oracledb.getPool()) {
-            connection = await oracledb.getConnection();
-            await connection.execute(
-                `INSERT INTO TELEMETRIA (SENSOR, PRESION, UNIDAD, TIMESTAMP) VALUES (:1, :2, :3, :4)`,
-                [datosTelemetria.sensor, datosTelemetria.presion, datosTelemetria.unidad, datosTelemetria.timestamp],
-                { autoCommit: true }
-            );
-            io.emit('telemetria_compresor', datosTelemetria); 
-        }
+        console.log("📥 Generando reporte de mantenimiento...");
+        
+        // 1. Pedimos una conexión a Oracle
+        connection = await oracledb.getConnection();
+
+        // 2. Consulta directa (sin alias)
+        const sqlQuery = `
+            SELECT TIMESTAMP, PRESION_PSI 
+            FROM COMPRESOR_HISTORICO 
+            ORDER BY TIMESTAMP DESC 
+            FETCH FIRST 100 ROWS ONLY
+        `;
+        
+        // 🚨 CAMBIO CLAVE: Cambiamos OUT_FORMAT_OBJECT por OUT_FORMAT_ARRAY
+        const result = await connection.execute(
+            sqlQuery, 
+            [], 
+            { outFormat: oracledb.OUT_FORMAT_ARRAY } 
+        );
+
+        // 3. Transformar los datos
+        let csvContent = "Fecha_Hora,Presion_PSI\n"; 
+        
+        result.rows.forEach(row => {
+            // Como es un Array, row[0] es la primera columna (Fecha) y row[1] la segunda (Presión)
+            const fechaLimpia = row[0] ? row[0] : 'Sin Fecha';
+            const presionLimpia = row[1] ? row[1] : 0;
+            
+            csvContent += `${fechaLimpia},${presionLimpia}\n`;
+        });
+
+        // 4. Magia HTTP: Le decimos al navegador que esto es un archivo descargable
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="Reporte_Compresor_01.csv"');
+
+        // 5. Enviamos el archivo terminado al cliente
+        res.status(200).send(csvContent);
+        
+        console.log("✅ Reporte descargado exitosamente");
+
     } catch (err) {
-        console.error("🔴 Error inyectando datos a Oracle:", err); 
+        console.error("❌ Error al generar el Excel:", err);
+        res.status(500).send("Error interno al generar el reporte");
     } finally {
-        if (connection) await connection.close();
+        // Siempre liberamos la conexión
+        if (connection) {
+            try { await connection.close(); } catch (e) { console.error(e); }
+        }
     }
-}, 2000);
+});
+
+// --- CONFIGURACIÓN DEL GEMELO DIGITAL ---
+let iteracion = 0;
+const presionBase = 110.0;
+const amplitudCiclo = 2.5;
+
+setInterval(async () => {
+    let connection; // Declaramos la variable localmente
+
+    try {
+        // 0. Pedimos prestada una conexión al Pool de Oracle
+        connection = await oracledb.getConnection();
+
+        iteracion++;
+        
+        // 1. Generamos el dato normal
+        let presionActual = presionBase + (Math.sin(iteracion / 10) * amplitudCiclo) + ((Math.random() - 0.5) * 0.5);
+
+        // 2. Simulamos la FALLA cada 15 lecturas
+        if (iteracion % 15 === 0) {
+            presionActual = 95.0; 
+            console.log("⚠️ Simulando fuga de presión en el compresor...");
+        }
+
+        // 3. CONSULTA DE INTELIGENCIA ARTIFICIAL (Inferencia)
+
+        const sqlPredict = `SELECT PREDICTION(MODELO_PREDICTIVO_COMPRESOR USING :presion AS PRESION_PSI) AS ESTATUS FROM DUAL`;
+        
+        const resultPredict = await connection.execute(
+            sqlPredict, 
+            { presion: presionActual },
+            { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+
+        const estatusIA = resultPredict.rows[0].ESTATUS; 
+        const diagnostico = (estatusIA === 1) ? 'Normal' : '🚨 Anomalía Detectada';
+
+        // Usamos toLocaleString para obtener Fecha Y Hora (ej. 4/3/2026, 10:28:00 p.m.)
+        const timestampActual = new Date().toLocaleString('es-MX', { timeZone: 'America/Monterrey', hour12: true });
+        
+        // ==========================================
+        // 4. ¡NUEVO! GUARDAR EL DATO EN LA BASE DE DATOS
+        // ==========================================
+        const sqlInsert = `INSERT INTO COMPRESOR_HISTORICO (TIMESTAMP, PRESION_PSI) VALUES (:fecha, :presion)`;
+        await connection.execute(sqlInsert, {
+            fecha: timestampActual,
+            presion: Math.round(presionActual * 100) / 100 // Redondeamos a 2 decimales para que el Excel quede limpio
+        }, { autoCommit: true }); // autoCommit guarda el cambio permanentemente
+        // ==========================================
+
+        
+        io.emit('telemetria', {
+            presion: presionActual.toFixed(2),
+            timestamp: timestampActual,
+            estado_ia: diagnostico
+        });
+
+    } catch (err) {
+        console.error("Error en el ciclo de lectura:", err);
+    } finally {
+        // 6. ¡MUY IMPORTANTE! Siempre cerramos/devolvemos la conexión en el bloque finally
+        if (connection) {
+            try {
+                await connection.close();
+            } catch (err) {
+                console.error("Error al cerrar la conexión:", err);
+            }
+        }
+    }
+}, 5000); // Se ejecuta cada 5 segundos
 
 const PUERTO = process.env.PORT || 3000;
 server.listen(PUERTO, () => {

@@ -50,72 +50,38 @@ fetch('/api/historico')
     })
     .catch(error => console.error("Error cargando historial:", error));
 
-// D. ESCUCHAR LOS DATOS NUEVOS EN TIEMPO REAL
-socket.on('telemetria_compresor', (datos) => {
+
+// Escuchamos el evento 'telemetria' que viene del servidor
+socket.on('telemetria', (data) => {
     
-    document.getElementById('displayPresion').innerText = datos.presion + " " + datos.unidad;
-    document.getElementById('displayHora').innerText = "Última lectura: " + datos.timestamp;
+    // 1. Actualizamos los textos (Esto ya te funciona perfecto)
+    document.getElementById('displayPresion').innerText = data.presion + " PSI";
+    document.getElementById('displayHora').innerText = "Última lectura: " + data.timestamp;
+    
+    const statusIA = document.getElementById('statusIA');
+    const indicadorAlarma = document.getElementById('indicadorAlarma');
 
-    chartPresion.data.labels.push(datos.timestamp);
-    chartPresion.data.datasets[0].data.push(datos.presion);
+    if (data.estado_ia === 'Normal') {
+        statusIA.innerText = "Salud del Equipo: Óptima";
+        statusIA.style.color = "#28a745"; 
+        indicadorAlarma.style.display = "none"; 
+    } else {
+        statusIA.innerText = "🚨 Falla Predictiva Detectada";
+        statusIA.style.color = "#dc3545"; 
+        indicadorAlarma.innerText = "⚠️ ALARMA: CAÍDA DE PRESIÓN (POSIBLE FUGA)";
+        indicadorAlarma.style.display = "block"; 
+    }
 
-    if (chartPresion.data.labels.length > 15) {
+    // 3. AQUI ESTÁ LA MAGIA CORREGIDA: Usamos chartPresion
+    chartPresion.data.labels.push(data.timestamp);
+    chartPresion.data.datasets[0].data.push(data.presion);
+
+    // Mantenemos la gráfica moviéndose (ventana de 20 lecturas)
+    if (chartPresion.data.labels.length > 20) {
         chartPresion.data.labels.shift();
         chartPresion.data.datasets[0].data.shift();
     }
-    // LÓGICA DE ALARMAS (Set-Point: 115 PSI)
-    const tarjeta = document.getElementById('tarjetaPresion');
-    const indicadorAlarma = document.getElementById('indicadorAlarma');
-    const valorPresion = document.getElementById('displayPresion');
 
-    if (datos.presion >= 115) {
-        // ACTIVAR ALARMA: Tarjeta roja y gráfica roja
-        tarjeta.style.backgroundColor = "#ffe6e6";
-        tarjeta.style.border = "2px solid #dc3545";
-        valorPresion.style.color = "#dc3545";
-        indicadorAlarma.style.display = "inline-block"; // Mostrar letrero
-        
-        // Cambiar color de la línea de Chart.js a rojo
-        chartPresion.data.datasets[0].borderColor = 'rgba(220, 53, 69, 1)';
-        chartPresion.data.datasets[0].backgroundColor = 'rgba(220, 53, 69, 0.2)';
-    } else {
-        // ESTADO NORMAL: Tarjeta blanca y gráfica azul
-        tarjeta.style.backgroundColor = "white";
-        tarjeta.style.border = "none";
-        valorPresion.style.color = "#007bff";
-        indicadorAlarma.style.display = "none"; // Ocultar letrero
-
-        // Cambiar color de la línea de Chart.js a azul
-        chartPresion.data.datasets[0].borderColor = 'rgba(0, 123, 255, 1)';
-        chartPresion.data.datasets[0].backgroundColor = 'rgba(0, 123, 255, 0.2)';
-    }
+    // Repintamos la gráfica
     chartPresion.update();
-
-    // ==========================================
-    // LÓGICA DE IA PREDICTIVA (Simulación OCI)
-    // ==========================================
-    // 1. Guardar un historial corto en la memoria del navegador
-    if (!window.memoriaIA) window.memoriaIA = [];
-    window.memoriaIA.push(datos.presion);
-    
-    // Mantener solo las últimas 5 lecturas para el análisis
-    if (window.memoriaIA.length > 5) window.memoriaIA.shift();
-
-    // 2. Calcular el promedio de esas 5 lecturas
-    let suma = window.memoriaIA.reduce((a, b) => a + b, 0);
-    let promedioTendencia = suma / window.memoriaIA.length;
-
-    // 3. Evaluar la tendencia (Detección de anomalías)
-    const statusIA = document.getElementById('statusIA');
-    
-    if (promedioTendencia > 113) {
-        statusIA.innerText = "⚠️ Tendencia Anómala: Revisar Válvulas";
-        statusIA.style.color = "#ffc107"; // Amarillo de advertencia predictiva
-    } else if (promedioTendencia < 102) {
-        statusIA.innerText = "⚠️ Riesgo de Despresurización";
-        statusIA.style.color = "#ffc107"; 
-    } else {
-        statusIA.innerText = "Salud del Equipo: Óptima";
-        statusIA.style.color = "#28a745"; // Verde
-    }
 });
